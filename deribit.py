@@ -1,68 +1,115 @@
 import requests
 from datetime import datetime, timezone
+from typing import List
 
-BASE_URL = "https://www.deribit.com/api/v2/"
+from exchange import Exchange, Option  # passe den Import-Pfad an
 
 
-def fetch_options_data(expiration_datetime: datetime):
+class Deribit(Exchange):
     """
-    Returns bid/ask, IV, amount and open interest for calls and puts expiring at a specific UTC datetime.
-
-    Parameters:
-        expiration_datetime (datetime): UTC datetime for expiration (tzinfo=timezone.utc)
-
-    Returns:
-        dict: {
-            'calls': [{instrument_name: {ticker_data}}],
-            'puts':  [{instrument_name: {ticker_data}}]
-        }
+    Concrete Exchange implementation for Deribit (BTC options).
     """
 
-    # 1) Get all active BTC options
-    instruments_resp = requests.get(
-        BASE_URL + "public/get_instruments",
-        params={"currency": "BTC", "expired": "false", "kind": "option"}
-    )
-    instruments_resp.raise_for_status()
-    instruments = instruments_resp.json()["result"]
+    @property
+    def base_url(self) -> str:
+        return "https://www.deribit.com/api/v2/"
 
-    # 2) Convert target datetime to millisecond timestamp
-    target_ts = int(expiration_datetime.timestamp() * 1000)
-
-    # 3) Filter for this exact expiration timestamp
-    matches = [inst for inst in instruments if inst["expiration_timestamp"] == target_ts]
-
-    # 4) Separate calls and puts by instrument_name
-    call_names = [inst["instrument_name"] for inst in matches if inst["instrument_name"].endswith("C")]
-    put_names  = [inst["instrument_name"] for inst in matches if inst["instrument_name"].endswith("P")]
-
-    def get_ticker_data(name: str):
+    def _fetch_instruments(self) -> List[dict]:
         resp = requests.get(
-            BASE_URL + "public/ticker",
-            params={"instrument_name": name}
+            self.base_url + "public/get_instruments",
+            params={"currency": "BTC", "expired": "false", "kind": "option"},
         )
         resp.raise_for_status()
-        r = resp.json()["result"]
-        return {
-            "best_ask_price":  r["best_ask_price"],
-            "ask_iv":          r["ask_iv"],
-            "best_ask_amount": r["best_ask_amount"],
-            "best_bid_price":  r["best_bid_price"],
-            "bid_iv":          r["bid_iv"],
-            "best_bid_amount": r["best_bid_amount"],
-            "open_interest":   r["open_interest"],
-        }
+        return resp.json()["result"]
 
-    # 5) Build data lists
-    calls_data = [{name: get_ticker_data(name)} for name in call_names]
-    puts_data  = [{name: get_ticker_data(name)} for name in put_names]
+    def _get_ticker(self, name: str) -> dict:
+        resp = requests.get(
+            self.base_url + "public/ticker",
+            params={"instrument_name": name},
+        )
+        resp.raise_for_status()
+        return resp.json()["result"]
 
-    return {"calls": calls_data, "puts": puts_data}
+    def fetch_calls(self, expiration: datetime) -> List[Option]:
+        if expiration.tzinfo != timezone.utc:
+            raise ValueError("`expiration` must be UTC-aware")
+
+        target_ts = int(expiration.timestamp() * 1000)
+        instruments = self._fetch_instruments()
+
+        # 1-Zeiler: filter nach expiry + Calls
+        calls = [
+            inst for inst in instruments
+            if inst["expiration_timestamp"] == target_ts
+               and inst["instrument_name"].endswith("C")
+        ]
+
+        results: List[Option] = []
+        for inst in calls:
+            name = inst["instrument_name"]
+            ticker = self._get_ticker(name)
+
+            # Inline-Extraktion:
+            # strike = dritter Chunk, type = 'call'
+            strike = int(name.split("-", 3)[2])
+
+            results.append(Option(
+                instrument_name=name,
+                expiration=expiration,
+                strike=strike,
+                type="call",
+                open_interest=ticker["open_interest"],
+                best_ask_amount=ticker["best_ask_amount"],
+                best_ask_price=ticker["best_ask_price"],
+                ask_iv=ticker["ask_iv"],
+                best_bid_price=ticker["best_bid_price"],
+                best_bid_amount=ticker["best_bid_amount"],
+                bid_iv=ticker["bid_iv"],
+            ))
+        return results
+
+    def fetch_puts(self, expiration: datetime) -> List[Option]:
+        if expiration.tzinfo != timezone.utc:
+            raise ValueError("`expiration` must be UTC-aware")
+
+        target_ts = int(expiration.timestamp() * 1000)
+        instruments = self._fetch_instruments()
+
+        # 1-Zeiler: filter nach expiry + Puts
+        puts = [
+            inst for inst in instruments
+            if inst["expiration_timestamp"] == target_ts
+               and inst["instrument_name"].endswith("P")
+        ]
+
+        results: List[Option] = []
+        for inst in puts:
+            name = inst["instrument_name"]
+            ticker = self._get_ticker(name)
+
+            # Inline-Extraktion:
+            strike = int(name.split("-", 3)[2])
+
+            results.append(Option(
+                instrument_name=name,
+                expiration=expiration,
+                strike=strike,
+                type="put",
+                open_interest=ticker["open_interest"],
+                best_ask_amount=ticker["best_ask_amount"],
+                best_ask_price=ticker["best_ask_price"],
+                ask_iv=ticker["ask_iv"],
+                best_bid_price=ticker["best_bid_price"],
+                best_bid_amount=ticker["best_bid_amount"],
+                bid_iv=ticker["bid_iv"],
+            ))
+        return results
 
 
 # Example usage
 if __name__ == "__main__":
-    target = datetime(2025, 5, 16, 8, 0, 0, tzinfo=timezone.utc)
-    data = fetch_options_data(target)
+    target = datetime(2025, 6, 13, 8, 0, 0, tzinfo=timezone.utc)
+    deribit = Deribit()
+    calls = deribit.fetch_calls(target)
     from pprint import pprint
-    pprint(data, indent=2)
+    pprint(calls, indent=1)
