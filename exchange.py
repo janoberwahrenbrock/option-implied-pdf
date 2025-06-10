@@ -10,6 +10,7 @@ class Option(BaseModel):
     strike: int
     type: Literal['call', 'put']
     open_interest: float
+    mark_price: float
     best_ask_amount: float
     best_ask_price: float
     ask_iv: float

@@ -53,12 +53,13 @@ call_options = exchange.fetch_calls(target)
 put_options  = exchange.fetch_puts(target)
 
 # In DataFrames umwandeln
-calls_df = pd.DataFrame([opt.dict() for opt in call_options])
-puts_df  = pd.DataFrame([opt.dict() for opt in put_options])
+calls_df = pd.DataFrame([opt.model_dump() for opt in call_options])
+puts_df  = pd.DataFrame([opt.model_dump() for opt in put_options])
 
 # Relevante Spalten auswählen
 cols = [
     "strike",
+    "mark_price",
     "open_interest",
     "best_bid_price",
     "best_ask_price",
@@ -86,6 +87,9 @@ def render_section(df: pd.DataFrame, title: str):
     if df.empty:
         st.write(f"Keine {title.lower()} für dieses Ablaufdatum.")
         return
+    
+    st.write("### Mark-Preis je Strike")
+    st.bar_chart(df["mark_price"])
 
     st.write("### Open Interest je Strike")
     st.bar_chart(df["open_interest"])
