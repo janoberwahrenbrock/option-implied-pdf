@@ -9,6 +9,7 @@ class Option(BaseModel):
     expiration: datetime
     strike: int
     type: Literal['call', 'put']
+    underlying_price: float
     open_interest: float
     mark_price: float
     best_ask_amount: float

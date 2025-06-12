@@ -223,7 +223,7 @@ def fit_parameter(
 
     # solve the problem
     problem = cv.Problem(objective, constraints)
-    problem.solve()
+    problem.solve(verbose=True) # solver=cv.CLARABEL
 
     return problem.status, problem.value, matrix.value
 

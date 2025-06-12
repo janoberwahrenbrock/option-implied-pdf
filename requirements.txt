@@ -2,3 +2,4 @@ requests
 streamlit
 pydantic
 matplotlib
+cvxpy
