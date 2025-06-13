@@ -7,6 +7,7 @@ from datetime import datetime
 class Option(BaseModel):
     instrument_name: str
     expiration: datetime
+    timestamp: int
     strike: int
     type: Literal['call', 'put']
     underlying_price: float
