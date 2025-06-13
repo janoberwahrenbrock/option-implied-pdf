@@ -96,6 +96,7 @@ class Deribit(Exchange):
             results.append(Option(
                 instrument_name=name,
                 expiration=expiration,
+                timestamp=ticker["timestamp"],
                 strike=strike,
                 type="put",
                 underlying_price=ticker["underlying_price"],
