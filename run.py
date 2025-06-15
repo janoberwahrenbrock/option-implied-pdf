@@ -9,6 +9,9 @@ import requests
 import calendar
 from collections import deque
 import numpy as np
+from typing import List, Tuple
+from dataclasses import dataclass
+import pickle
 
 
 from scale import scale_x_value, unscale_x_value, unscale_splines
@@ -22,7 +25,7 @@ DERIBIT_URL = "https://www.deribit.com/api/v2/"
 FETCH_FUTURES_INTERVALL = 10 # Pause bevor erneut die OHLC Candles abgefragt werden
 OPTIONS_REQUESTS_PER_SECOND = 10 # Anzahl der Anfragen pro Sekunde für die Optionen
 UPDATE_FUNCTION_FIT_INTERVALL = 10 # Intervall in Sekunden, um die Funktion Fit zu aktualisieren
-SAMPLING_INTERVAL = 0.01 # Intervall für die Abtastung der Spline-Funktion
+SAMPLING_INTERVAL = 0.01 # Intervall für die Abtastung der Spline-Funktion beachte dass die range -1, 1 ist
 MIN_MARK_PRICE = 0.0005 # Minimaler Mark-Preis für die Punkte, die in den Fit einfließen sollen
 
 
@@ -64,6 +67,16 @@ expiration = datetime(
     tzinfo=timezone.utc
 )
 
+
+
+@dataclass
+class SharedData:
+    timestamp: datetime
+    matrix: np.ndarray    
+    scaled_support_points: List[float]                     
+    scaled_bounds: Tuple[float, float]
+    original_x_min: float
+    original_x_max: float
 
 
 
@@ -196,10 +209,9 @@ app.layout = html.Div([
 def update_function_fit_plot(n, degree_of_spline):
     global current_underlying_price
     # kopiere die globalen Variablen in lokale Variablen um Seiten-Effekte zu vermeiden
-    # current_underlying_price wird in konvex_until verwendet
     konvex_until = current_underlying_price
 
-
+    # Points sind in der range -x < 0 < +y
     if not points or not support_points:
         return go.Figure(), go.Figure(), go.Figure(), go.Figure()
 
@@ -217,6 +229,7 @@ def update_function_fit_plot(n, degree_of_spline):
 
     min_strike = min(filtered_points, key=lambda x: x[0])[0]
     max_strike = max(filtered_points, key=lambda x: x[0])[0]
+
 
 
     # === Skalieren ===
@@ -251,7 +264,10 @@ def update_function_fit_plot(n, degree_of_spline):
     # Bounds skalieren (ergibt -1.0 und +1.0)
     scaled_bounds = (-1.0, 1.0)
 
-    #  Fit im skalierten Raum
+
+
+
+    #  === Fit im skalierten Raum ===
     status, value, matrix = fit_parameter(
         points=scaled_points,
         support_points=scaled_support_points,
@@ -263,7 +279,7 @@ def update_function_fit_plot(n, degree_of_spline):
 
 
 
-
+    # === Spline-Funktionen generieren und in gewünschte Ranges skalieren===
     spline_scaled = assemble_splines(
         matrix=matrix,
         support_points=scaled_support_points,
@@ -276,8 +292,6 @@ def update_function_fit_plot(n, degree_of_spline):
         original_x_max=max_strike,
         scaled_bounds=scaled_bounds
     )
-
-
 
 
     first_derivative_scaled = assemble_splines(
@@ -294,9 +308,6 @@ def update_function_fit_plot(n, degree_of_spline):
     )
 
 
-
-
-
     second_derivative_scaled = assemble_splines(
         matrix=matrix,
         support_points=scaled_support_points,
@@ -311,14 +322,50 @@ def update_function_fit_plot(n, degree_of_spline):
     )
 
 
+    # === Originale Range konstruieren ===
+    # wieder in der Range x < current_underlying_price < y
+
+    original_points = []
+    
+    for strike, price in filtered_points:
+        original_x = strike + konvex_until
+        original_points.append((original_x, price))
+
+    original_x_min = min(original_points, key=lambda x: x[0])[0] # 85 000
+    original_x_max = max(original_points, key=lambda x: x[0])[0] # 150 000
+
+
+    second_derivative_original = unscale_splines(
+        second_derivative_scaled,
+        original_x_min=original_x_min,
+        original_x_max=original_x_max,
+        scaled_bounds=scaled_bounds
+    )
 
 
 
-    # 7) Fit-Kurve generieren
+
+    # === Daten exportieren ===
+    shared_data = SharedData(
+        timestamp=datetime.now(timezone.utc),
+        matrix=matrix,
+        scaled_support_points=scaled_support_points,
+        scaled_bounds=scaled_bounds,
+        original_x_min=original_x_min,
+        original_x_max=original_x_max
+    )
+
+    with open("shared_data.pkl", "wb") as f:
+        pickle.dump(shared_data, f)
+
+
+
+    # === Plot generieren ===
+    #  Fit-Kurve generieren
     xs_fit = np.linspace(min_strike, max_strike, 50)
     ys_fit = [spline(x) for x in xs_fit]
 
-    # 8) Plot bauen
+    #  Plot bauen
     fig = go.Figure()
     xs, ys = zip(*filtered_points)
     fig.add_trace(go.Scatter(
@@ -341,9 +388,6 @@ def update_function_fit_plot(n, degree_of_spline):
     
 
 
-
-
-
     # === 1. Ableitung Plot ===
     xs_first_derivative = np.linspace(min_strike, max_strike, 50)
     ys_first_derivative = [first_derivative(x) for x in xs_first_derivative]
@@ -361,6 +405,7 @@ def update_function_fit_plot(n, degree_of_spline):
         yaxis_title="1. Ableitung",
         uirevision='static'  # Zoom/Pan erhalten
     )
+
 
 
     # === 2. Ableitung Plot ===
@@ -383,29 +428,7 @@ def update_function_fit_plot(n, degree_of_spline):
 
 
 
-
-    # === Originale Punkte und Support-Punkte ===
-    # wieder in der Range 85 000 bis 150 000 statt -20 000 bis 50 000
-
-    original_points = []
-    
-    for strike, price in filtered_points:
-        original_x = strike + konvex_until
-        original_points.append((original_x, price))
-
-
-    original_x_min = min(original_points, key=lambda x: x[0])[0] # 85 000
-    original_x_max = max(original_points, key=lambda x: x[0])[0] # 150 000
-
-
-    second_derivative_original = unscale_splines(
-        second_derivative_scaled,
-        original_x_min=original_x_min,
-        original_x_max=original_x_max,
-        scaled_bounds=scaled_bounds
-    )
-
-
+    # === 2. Ableitung Original Plot ===
     xs_second_derivative_original = np.linspace(original_x_min, original_x_max, 50)
     ys_second_derivative_original = [second_derivative_original(x) for x in xs_second_derivative_original]
 
@@ -425,24 +448,7 @@ def update_function_fit_plot(n, degree_of_spline):
 
 
 
-
-    # erste ableitung original
-    first_derivative_original = unscale_splines(
-        first_derivative_scaled,
-        original_x_min=original_x_min,
-        original_x_max=original_x_max,
-        scaled_bounds=scaled_bounds
-    )
-    print(first_derivative_original(106000)-first_derivative_original(104000))
-    print(first_derivative_original(119500)-first_derivative_original(85500))
-
-
-    # first_derivative_original will ich exportieren
-
-
-
-
-    return fig, fig_first_derivative, fig_second_derivative, fig_second_derivative_original  # Leerer Plot für den Original-Plot
+    return fig, fig_first_derivative, fig_second_derivative, fig_second_derivative_original
 
 
     
