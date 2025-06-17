@@ -2,3 +2,5 @@
 /venv
 
 shared_data.pkl
+
+.DS_Store
