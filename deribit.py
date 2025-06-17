@@ -12,9 +12,24 @@ class Deribit(Exchange):
 
     @property
     def base_url(self) -> str:
+        """
+        The base URL for Deribit API endpoints.
+
+        Returns:
+            str: Base URL string for API calls.
+        """
         return "https://www.deribit.com/api/v2/"
 
     def _fetch_instruments(self) -> List[dict]:
+        """
+        Fetches all active BTC option instruments from Deribit.
+
+        Returns:
+            List[dict]: A list of instrument info dictionaries as returned by the API.
+
+        Raises:
+            requests.HTTPError: If the HTTP request fails or returns a bad status code.
+        """
         resp = requests.get(
             self.base_url + "public/get_instruments",
             params={"currency": "BTC", "expired": "false", "kind": "option"},
@@ -23,6 +38,18 @@ class Deribit(Exchange):
         return resp.json()["result"]
 
     def _get_ticker(self, name: str) -> dict:
+        """
+        Retrieves ticker information for a specific instrument.
+
+        Args:
+            name (str): The instrument name (e.g., 'BTC-30JUN23-30000-C').
+
+        Returns:
+            dict: Ticker data dictionary for the given instrument.
+
+        Raises:
+            requests.HTTPError: If the HTTP request fails or returns a bad status code.
+        """
         resp = requests.get(
             self.base_url + "public/ticker",
             params={"instrument_name": name},
@@ -31,6 +58,19 @@ class Deribit(Exchange):
         return resp.json()["result"]
 
     def fetch_calls(self, expiration: datetime) -> List[Option]:
+        """
+        Fetches all call options with the specified expiration date.
+
+        Args:
+            expiration (datetime): UTC-aware expiration datetime to filter instruments.
+
+        Returns:
+            List[Option]: A list of Option objects for call options.
+
+        Raises:
+            ValueError: If `expiration` is not timezone-aware UTC.
+            requests.HTTPError: If the HTTP request fails or returns a bad status code.
+        """
         if expiration.tzinfo != timezone.utc:
             raise ValueError("`expiration` must be UTC-aware")
 
@@ -72,6 +112,19 @@ class Deribit(Exchange):
         return results
 
     def fetch_puts(self, expiration: datetime) -> List[Option]:
+        """
+        Fetches all put options with the specified expiration date.
+
+        Args:
+            expiration (datetime): UTC-aware expiration datetime to filter instruments.
+
+        Returns:
+            List[Option]: A list of Option objects for put options.
+
+        Raises:
+            ValueError: If `expiration` is not timezone-aware UTC.
+            requests.HTTPError: If the HTTP request fails or returns a bad status code.
+        """
         if expiration.tzinfo != timezone.utc:
             raise ValueError("`expiration` must be UTC-aware")
 
@@ -114,7 +167,7 @@ class Deribit(Exchange):
 
 # Example usage
 if __name__ == "__main__":
-    target = datetime(2025, 6, 13, 8, 0, 0, tzinfo=timezone.utc)
+    target = datetime(2025, 6, 20, 8, 0, 0, tzinfo=timezone.utc)
     deribit = Deribit()
     calls = deribit.fetch_calls(target)
     from pprint import pprint

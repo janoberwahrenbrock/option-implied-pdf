@@ -1,15 +1,18 @@
+# Standard Library
 from datetime import datetime, timezone
-from deribit import Deribit
 
+# Lokal
+from deribit import Deribit
 from model import fit_parameter, assemble_splines, plot_func
 from scale import scale_x_value, unscale_x_value, unscale_splines
 
 
 
 # === User Inputs 1 ===
-target = datetime(2025, 6, 20, 8, 0, 0, tzinfo=timezone.utc)
+target = datetime(2025, 6, 20, 8, 0, 0, tzinfo=timezone.utc) # change YYYY-MM-DD but options alsways expire at 8:00 UTC at Deribit
 use_calls = True  # Set to False if you want to use puts instead of calls
 MIN_MARK_PRICE = 0.0005
+MAX_MARK_PRICE = 0.1
 SAMPLING_INTERVAL = 0.01 # Intervall für die Abtastung der Spline-Funktion beachte dass die range -1, 1 ist
 SPLINE_DEGREE = 3  # Grad des Splines
 # === User Inputs 1 End ===
@@ -38,12 +41,11 @@ support_points = [underlying_price - 10000, underlying_price - 5000, underlying_
 
 
 
-# Problem der Ungenauigkeit durch die kleinen BTC Beträge
-# remove all Options with a mark price lower than MIN_MARK_PRICE
+# Filter 
 filtered_strikes = []
 filtered_marks = []
 for strike, mark in zip(strikes, marks):
-    if mark >= MIN_MARK_PRICE:
+    if mark >= MIN_MARK_PRICE and mark <= MAX_MARK_PRICE:
         filtered_strikes.append(strike)
         filtered_marks.append(mark)
 
@@ -58,11 +60,10 @@ for i in range(len(strikes)):
 
 # === Skaliere die Daten ===
 
-# alte bounds sichern
+# 1) alte bounds sichern
 original_x_min = min(strikes)
 original_x_max = max(strikes)
 original_bounds = (original_x_min, original_x_max)
-
 
 # 2) Strikes skalieren
 strikes_scaled = [
@@ -70,9 +71,10 @@ strikes_scaled = [
     for x in strikes
 ]
 
-# 3) Punkte fürs Fit
+# 3) Punkte für den Fit
 points_scaled = list(zip(strikes_scaled, marks))
 
+# 4) support_points und konvex_until skalieren
 # Skalieren aller support_points auf [-1,1]
 support_points_scaled = [
     scale_x_value(
@@ -92,13 +94,10 @@ konvex_until_scaled = scale_x_value(
     scaled_bounds=(-1.0, 1.0)
 )
 
-
 # 5) Bounds skalieren (ergibt -1.0 und +1.0)
 bounds_scaled = (-1.0, 1.0)
 
-
-
-# 6) Fit im skalierten Raum
+# 6) Fit function im skalierten Raum
 status, value, matrix = fit_parameter(
     points=points_scaled,
     support_points=support_points_scaled,
@@ -108,24 +107,18 @@ status, value, matrix = fit_parameter(
     sampling_interval=SAMPLING_INTERVAL
 )
 
+
 print(f"Status: {status}")
 print(f"Zielfunktionswert: {value}")
 print("Koeffizientenmatrix:")
 print(matrix)
 
 
+# Baue die Funktion im skalierten Raum auf
+scaled_spline_func = assemble_splines(matrix=matrix, support_points=support_points_scaled, bounds=bounds_scaled)
 
-# Baue die Funktion
-scaled_spline_func = assemble_splines(
-    matrix=matrix,
-    support_points=support_points_scaled,
-    bounds=bounds_scaled
-)
-
-spline_func = unscale_splines(scaled_spline_func, 
-                              original_x_min=original_x_min,
-                              original_x_max=original_x_max,
-                              scaled_bounds=(-1.0, 1.0))
+# hole die Funktion zurück in den originalen Raum
+spline_func = unscale_splines(scaled_spline_func, original_x_min=original_x_min, original_x_max=original_x_max, scaled_bounds=(-1.0, 1.0))
 
 plot_func(func=spline_func, bounds=original_bounds, points=points)
 

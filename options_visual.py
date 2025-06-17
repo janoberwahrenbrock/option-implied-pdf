@@ -3,8 +3,7 @@ from datetime import datetime, timezone
 import calendar
 import pandas as pd
 
-from deribit import Deribit  # Deine Exchange-Implementation
-from exchange import Option  # Das Pydantic-Modell (optional)
+from deribit import Deribit
 
 st.title("BTC-Optionen bei Deribit")
 
