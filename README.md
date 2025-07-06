@@ -9,7 +9,7 @@ Given a sparse set of BTC option prices (strike granularity > 1 000 USD), 
 - **Probability queries**: "What probability has the market priced in for BTC to expire in [a, b]?"
 - **Pricing derivatives**: Compute fair values for instruments like binary options based on the implied PDF.
 
-### Solution Overview
+### Methodology Overview
 
 The mathematical derivation is detailed in **methodology.pdf**. This README focuses on running the code in this repository.
 
