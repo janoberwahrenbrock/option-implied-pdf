@@ -163,12 +163,48 @@ class Deribit(Exchange):
                 bid_iv=ticker["bid_iv"],
             ))
         return results
+    
+    def instrument_exists(self, instrument_name: str) -> bool:
+        """
+        Prüft, ob ein Instrument auf Deribit existiert.
+
+        Args:
+            instrument_name (str): z.B. 'BTC-30JUN23-30000-C'
+
+        Returns:
+            bool: True, wenn der Aufruf erfolgreich war und ein Ergebnis enthält,
+                  False bei HTTP-Fehlern oder leerem Ergebnis.
+        """
+        try:
+            resp = requests.get(
+                self.base_url + "public/get_instrument",
+                params={"instrument_name": instrument_name},
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result")
+            return data is not None
+        except Exception:
+            return False
 
 
 # Example usage
 if __name__ == "__main__":
+    '''
     target = datetime(2025, 6, 20, 8, 0, 0, tzinfo=timezone.utc)
     deribit = Deribit()
     calls = deribit.fetch_calls(target)
     from pprint import pprint
     pprint(calls, indent=1)
+    '''
+    api = Deribit()
+    import calendar
+
+    for date_str in ["2025-07-09", "2025-07-10", "2025-07-11"]:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        day = dt.day
+        month_abbr = calendar.month_abbr[dt.month].upper()
+        year_suffix = str(dt.year)[-2:]
+        future_name = f"BTC-{day:02}{month_abbr}{year_suffix}"
+
+        exists = api.instrument_exists(future_name)
+        print(f"{future_name}: {'✔️ exists' if exists else '❌ does not exist'}")

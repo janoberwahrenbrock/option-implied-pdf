@@ -97,7 +97,8 @@ use_calls = (opt_str == "C")
 day = date_obj.day
 month_abbr = calendar.month_abbr[date_obj.month].upper()
 year_suffix = str(date_obj.year)[-2:]
-future_name = f"BTC-{day:02}{month_abbr}{year_suffix}"
+future_name = f"BTC-{day}{month_abbr}{year_suffix}"
+future_exists = Deribit().instrument_exists(future_name)
 expiration = datetime(
     year=date_obj.year,
     month=date_obj.month,
@@ -247,6 +248,16 @@ def fetch_points_loop(stack: deque) -> None:
             except Exception as e:
                 print(f"Fehler bei {option.instrument_name}: {e}")
             stack.append(option)
+        else:
+            print(
+                """
+                Fehler!
+                Keine Optionen zum Abfragen im Stack vorhanden.
+                Prüfe bei Deribit, dass für das angegebene Ablaufdatum Optionen existieren.
+                Bitte beende den Prozess und starte ihn neu mit einem gültigen Ablaufdatum.
+                """
+            )
+            sys.exit(1)
         time.sleep(1/OPTIONS_REQUESTS_PER_SECOND)
 
 
@@ -256,26 +267,58 @@ def fetch_points_loop(stack: deque) -> None:
 # === 6. Dash App ===
 app = Dash(__name__)
 
-# 6.1 Layout
-app.layout = html.Div([
+
+# 6.1 Layout dynamisch zusammenbauen
+layout_children = [
     html.H2("Option implied PDF"),
+]
 
-    dcc.Graph(id="future-plot"),
-    dcc.Interval(id="future-refresh", interval=FETCH_FUTURES_INTERVALL * 1000, n_intervals=0),
+if future_exists:
+    layout_children += [
+        dcc.Graph(id="future-plot"),
+        dcc.Interval(
+            id="future-refresh",
+            interval=FETCH_FUTURES_INTERVALL * 1000,
+            n_intervals=0
+        ),
+    ]
 
+layout_children += [
     dcc.Graph(id='points-plot'),
-    dcc.Interval(id='points-refresh', interval=1/OPTIONS_REQUESTS_PER_SECOND*1000, n_intervals=0),
+    dcc.Interval(
+        id='points-refresh',
+        interval=1000 / OPTIONS_REQUESTS_PER_SECOND,
+        n_intervals=0
+    ),
     html.Div(id='points-count'),
 
-    html.Div(f"Datenpunkte mit Mark Price < {MIN_MARK_PRICE} werden herausgefiltert", style={'marginTop': '10px', 'fontStyle': 'italic'}),
-    html.Div(f"Datenpunkte mit Mark Price > {MAX_MARK_PRICE} werden herausgefiltert", style={'marginTop': '10px', 'fontStyle': 'italic'}),
-    html.Div("Current Best Practise: spline degree of 3 und viele support points die zur mitte hin dichter werden", style={'marginTop': '10px', 'fontStyle': 'italic'}),
+    html.Div(
+        f"Datenpunkte mit Mark Price < {MIN_MARK_PRICE} werden herausgefiltert",
+        style={'marginTop': '10px', 'fontStyle': 'italic'}
+    ),
+    html.Div(
+        f"Datenpunkte mit Mark Price > {MAX_MARK_PRICE} werden herausgefiltert",
+        style={'marginTop': '10px', 'fontStyle': 'italic'}
+    ),
+    html.Div(
+        "Current Best Practise: spline degree of 3 und viele support points die zur mitte hin dichter werden",
+        style={'marginTop': '10px', 'fontStyle': 'italic'}
+    ),
     html.Div(id='support-points-display'),
-    html.Div("Rule: Support Points inklusive 0 aufsteigend; min(filtered(points)[x-Wert]) < min(support_points) and max(support_points) < max(filtered(points)[x-Wert]) ", style={'marginTop': '10px', 'fontStyle': 'italic'}),
-    dcc.Input(id='support-points-input', type='text', placeholder='z.B. -10000, -5000, -1000, 0, 1000, 5000, 10000', style={'width': '60%'}),
+    html.Div(
+        "Rule: Support Points inklusive 0 aufsteigend; "
+        "min(filtered(points)[x-Wert]) < min(support_points) and "
+        "max(support_points) < max(filtered(points)[x-Wert])",
+        style={'marginTop': '10px', 'fontStyle': 'italic'}
+    ),
+    dcc.Input(
+        id='support-points-input',
+        type='text',
+        placeholder='z.B. -10000, -5000, -1000, 0, 1000, 5000, 10000',
+        style={'width': '60%'}
+    ),
     html.Button('Absenden', id='support-points-input-button'),
 
-    # Auswahl für den Spline-Grad
     html.Div([
         html.Label("Degree of spline:"),
         dcc.RadioItems(
@@ -285,7 +328,7 @@ app.layout = html.Div([
                 {'label': '4', 'value': 4},
                 {'label': '5', 'value': 5},
             ],
-            value=3,  # default
+            value=3,
             labelStyle={'display': 'inline-block', 'margin-right': '10px'}
         )
     ], style={'margin': '20px 0'}),
@@ -294,22 +337,34 @@ app.layout = html.Div([
     dcc.Graph(id="first-derivative-plot"),
     dcc.Graph(id="second-derivative-plot"),
     dcc.Graph(id="second-derivative-original-plot"),
-    dcc.Interval(id="function-fit-refresh", interval=UPDATE_FUNCTION_FIT_INTERVALL * 1000, n_intervals=0),
+    dcc.Interval(
+        id="function-fit-refresh",
+        interval=UPDATE_FUNCTION_FIT_INTERVALL * 1000,
+        n_intervals=0
+    ),
 
-    html.Div("Wähle a und b (a < b) für die Wahrscheinlichkeit:",
-             style={'marginTop': '20px', 'fontWeight': 'bold'}),
-    dcc.Input(id='input-a',
-              type='number',
-              placeholder='a ( > original_x_min )',
-              style={'marginRight': '10px'}),
-    dcc.Input(id='input-b',
-              type='number',
-              placeholder='b ( < original_x_max )'),
-    html.Div(id='probability-output',
-             style={'marginTop': '10px', 'fontWeight': 'bold'}),
-])
+    html.Div(
+        "Wähle a und b (a < b) für die Wahrscheinlichkeit (a = -1 setzt a auf original_x_min, b = 0 setzt b auf original_x_max):",
+        style={'marginTop': '20px', 'fontWeight': 'bold'}
+    ),
+    dcc.Input(
+        id='input-a',
+        type='number',
+        placeholder='a ( > original_x_min )',
+        style={'marginRight': '10px'}
+    ),
+    dcc.Input(
+        id='input-b',
+        type='number',
+        placeholder='b ( < original_x_max )'
+    ),
+    html.Div(
+        id='probability-output',
+        style={'marginTop': '10px', 'fontWeight': 'bold'}
+    ),
+]
     
-
+app.layout = html.Div(layout_children)
 
 # 6.2 Callbacks
 
@@ -775,6 +830,11 @@ def update_function_fit_plot(n, degree_of_spline, a: float, b: float) -> Tuple[g
         uirevision='static'  # Zoom/Pan erhalten
     )
 
+    if a == -1:
+        a = original_x_min
+    if b == 0:
+        b = original_x_max
+
 
     total_prob = first_derivative_original(original_x_max) - first_derivative_original(original_x_min)
 
@@ -783,7 +843,7 @@ def update_function_fit_plot(n, degree_of_spline, a: float, b: float) -> Tuple[g
     # Nur wenn beide Inputs gesetzt sind
     if a is not None and b is not None:
         # Gültigkeitsprüfung: in Range und a < b
-        if not (original_x_min < a < b < original_x_max):
+        if not (original_x_min <= a < b <= original_x_max):
             prob_text = (
                 f"Fehler: a und b müssen im Bereich "
                 f"({original_x_min}, {original_x_max}) liegen und a < b sein."
@@ -806,10 +866,13 @@ def update_function_fit_plot(n, degree_of_spline, a: float, b: float) -> Tuple[g
 if __name__ == "__main__":
     logging.getLogger('werkzeug').setLevel(logging.WARNING) # verhindert, dass bei jedem Callback eine Nachricht im Terminal erscheint
 
-    threading.Thread(
-        target=lambda: fetch_future_candles_loop(future_name),
-        daemon=True
-    ).start()
+    if future_exists:
+        threading.Thread(
+            target=lambda: fetch_future_candles_loop(future_name),
+            daemon=True
+        ).start()
+    else:
+        print(f"Future {future_name} could not be fetched. Check wether the future is available on Deribit. For some options the underlying is synthetic and not a traded future. In that case just ignore this message.")
 
     threading.Thread(
         target=fetch_points_loop, args=(stack,), 
