@@ -33,9 +33,9 @@ While the reference implementation targets BTC options on Deribit, the same meth
   - Fetches data once and performs a single spline fit (no UI).
   - Useful for understanding the core workflow without real‑time updates.
 
-- **options_visible.py**: A Streamlit script to inspect available option chains on Deribit.
+- **options_visual.py**: A Streamlit script to inspect available option chains on Deribit.
   ```bash
-  streamlit run options_visible.py
+  streamlit run options_visual.py
   ```
 
 - **import_fitted_function.py**: Demonstrates loading the exported `shared_data.pkl` and using the fitted spline in a separate program.
